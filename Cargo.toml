@@ -1,0 +1,9 @@
+[package]
+name = "soundmachine"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cpal = "0.18.1"
+midi = "0.1.0"
+spectrograms = "2.1.3"
