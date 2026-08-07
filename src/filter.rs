@@ -1,28 +1,18 @@
-use std::collections::HashMap;
-
+use hound::WavReader;
 use ndarray::Array2;
-
-use spectrograms::Decibels;
-
-use spectrograms::SpectrogramPlanner;
-
-use spectrograms::LogParams;
-
-use spectrograms::SpectrogramParams;
-
 use spectrograms::CqtParams;
-
-use spectrograms::WindowType;
-
+use spectrograms::Decibels;
+use spectrograms::LogParams;
+use spectrograms::SpectrogramParams;
+use spectrograms::SpectrogramPlanner;
 use spectrograms::StftParams;
-
+use spectrograms::WindowType;
+use spectrograms::nzu;
+use std::collections::HashMap;
+use std::error::Error;
 use std::num::NonZeroUsize;
 
-use spectrograms::nzu;
-
-use hound::WavReader;
-
-pub(crate) fn load_input() -> Result<(Vec<f64>, f64), Box<dyn std::error::Error>> {
+pub(crate) fn load_input() -> Result<(Vec<f64>, f64), Box<dyn Error>> {
     let reader = WavReader::open("tests/fixtures/input.wav")?;
     let spec = reader.spec();
     let sample_rate = spec.sample_rate as f64;
@@ -47,7 +37,7 @@ pub(crate) fn load_input() -> Result<(Vec<f64>, f64), Box<dyn std::error::Error>
 }
 
 pub(crate) fn cqt(samples: &[f64], sample_rate_hz: f64) -> Result<f64, Box<dyn std::error::Error>> {
-    let samples = non_empty_slice::NonEmptySlice::new(samples).expect("why music empty yo?");
+    let samples = non_empty_slice::NonEmptySlice::try_new(samples)?;
 
     // let n_fft = nzu!(2048);
     let hop_size = nzu!(512);
@@ -56,11 +46,11 @@ pub(crate) fn cqt(samples: &[f64], sample_rate_hz: f64) -> Result<f64, Box<dyn s
     let n_octaves = nzu!(4);
     let f_min = 65.41;
 
-    let n_fft =
-        NonZeroUsize::new(
-            calculate_safe_n_fft(f_min, sample_rate_hz, bins_per_octave.get() as u32) as usize,
-        )
-        .unwrap();
+    let n_fft = NonZeroUsize::try_from(calculate_safe_n_fft(
+        f_min,
+        sample_rate_hz,
+        bins_per_octave.get() as u32,
+    ) as usize)?;
 
     let stft = StftParams::new(n_fft, hop_size, WindowType::Hanning, true)?;
     let cqt_params = CqtParams::new(bins_per_octave, n_octaves, f_min)?;
@@ -87,12 +77,14 @@ pub fn loudest_frequency(chunk: &Array2<f64>, bins: &non_empty_slice::NonEmptySl
     let mut how_many_above_energy_threshold = 0;
 
     for column in chunk.columns() {
-        let (argmax, max_db) = column
+        let Some((argmax, max_db)) = column
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(idx, &val)| (idx, val))
-            .unwrap();
+        else {
+            continue;
+        };
 
         if max_db > -15.0 {
             peak_frequencies.push(argmax);
@@ -109,16 +101,18 @@ pub fn loudest_frequency(chunk: &Array2<f64>, bins: &non_empty_slice::NonEmptySl
         *frequencies_map.entry(freq).or_insert(0) += 1;
     }
 
-    let stable_center_row = frequencies_map
+    let Some(stable_center_row) = frequencies_map
         .into_iter()
         .max_by_key(|&(_, count)| count)
         .map(|(idx, _)| idx)
-        .unwrap();
+    else {
+        return f64::NAN;
+    };
 
     bins[stable_center_row]
 }
 
-pub(crate) fn calculate_safe_n_fft(fmin: f64, sample_rate: f64, bins_per_octave: u32) -> u32 {
+fn calculate_safe_n_fft(fmin: f64, sample_rate: f64, bins_per_octave: u32) -> u32 {
     // Q factor formula taken from librosa
     let q = 1.0 / (2.0f64.powf(1.0 / bins_per_octave as f64) - 1.0);
 
