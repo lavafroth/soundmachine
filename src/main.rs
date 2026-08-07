@@ -1,19 +1,19 @@
+use hound::WavReader;
+use ndarray::Array2;
+use std::error::Error;
+use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
-
+// use std::thread;
+// use std::time::Duration;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+mod filter;
 
 #[derive(Clone, Copy)]
 struct Note {
     frequency: f32,
     start: f64,
     end: f64,
-}
-
-fn estimate_pitch_from_audio(_samples: &[f32], _sample_rate: u32) -> f32 {
-    // TODO: replace with spectrograms-based detector
-    440.0
 }
 
 fn write_var_len(out: &mut Vec<u8>, mut value: u32) {
@@ -79,7 +79,7 @@ fn save_midi(notes: &[Note], path: &str) {
     std::fs::write(path, bytes).expect("failed to write midi");
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     // Audio capture with CPAL
     let host = cpal::default_host();
     let device = host
@@ -109,21 +109,25 @@ fn main() {
         _ => panic!("Unsupported sample format"),
     };
 
-    stream.play().expect("failed to start stream");
+    // stream.play().expect("failed to start stream");
 
-    // Record for a fixed duration (scaffold)
-    thread::sleep(Duration::from_secs(5));
-    drop(stream);
+    // // Record for a fixed duration (scaffold)
+    // thread::sleep(Duration::from_secs(5));
+    // drop(stream);
 
     let audio = samples.lock().unwrap().clone();
     let duration = audio.len() as f64 / sample_rate as f64;
-    let freq = estimate_pitch_from_audio(&audio, sample_rate);
+
+    let (samples, sample_rate_hz) = filter::load_input()?;
+    let f = filter::cqt(&samples, sample_rate_hz)?;
+    println!("{f}");
 
     let notes = vec![Note {
-        frequency: freq,
+        frequency: 440.0f32,
         start: 0.0,
         end: duration,
     }];
 
     save_midi(&notes, "output.mid");
+    Ok(())
 }
