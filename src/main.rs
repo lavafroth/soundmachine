@@ -1,12 +1,10 @@
 use cpal::traits::StreamTrait;
+use cpal::traits::{DeviceTrait, HostTrait};
+use getch_rs::{Getch, Key};
 use std::error::Error;
-use std::io::{BufRead, BufReader, stdin};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::thread;
-// use std::thread;
-// use std::time::Duration;
-use cpal::traits::{DeviceTrait, HostTrait};
 
 mod filter;
 
@@ -117,18 +115,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let stdin = stdin().lock();
-    let reader = BufReader::new(stdin);
-    let mut chunk_segments = vec![]; // 0 to first chunk is discarded
-    for line in reader.lines() {
-        if line? == "q" {
-            tx.send(()).expect("failed to send message");
-            break;
-        }
+    let g = Getch::new();
 
-        chunk_segments.push(samples.lock().unwrap().len());
+    println!("Press q to finish recording, any other key to mark a note boundary.");
+
+    let mut chunk_segments = vec![]; // 0 to first chunk is discarded
+    while let Ok(key) = g.getch() {
+        match key {
+            Key::Char('q') => {
+                tx.send(())?;
+                chunk_segments.push(samples.lock().unwrap().len());
+                break;
+            }
+
+            _ => {
+                chunk_segments.push(samples.lock().unwrap().len());
+            }
+        }
     }
-    chunk_segments.push(samples.lock().unwrap().len());
 
     let samples = samples.lock().unwrap();
     let mut notes = vec![];

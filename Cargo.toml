@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 cpal = "0.18.1"
+getch-rs = "0.2.0"
 hound = "3.5.1"
 midi = "0.1.0"
 midly = "0.5.3"
