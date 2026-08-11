@@ -148,7 +148,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut last = 0.0;
     for freq in freqs {
         notes.push(Note {
-            frequency: freq as f32,
+            frequency: freq as f32 * 4.0,
             start: last,
             end: last + 1.0,
         });
