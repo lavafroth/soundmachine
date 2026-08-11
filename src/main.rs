@@ -114,7 +114,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         stream.play().expect("failed to start stream");
         if rx.recv().is_ok() {
             stream.pause().unwrap();
-            return;
         }
     });
 
@@ -150,7 +149,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             end: last + 1.0,
         });
 
-        last = last + 1.0;
+        last += 1.0;
     }
 
     save_midi(&notes, "output.mid");
