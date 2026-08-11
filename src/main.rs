@@ -1,11 +1,8 @@
-use hound::WavReader;
-use ndarray::Array2;
 use std::error::Error;
-use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 // use std::thread;
 // use std::time::Duration;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, HostTrait};
 
 mod filter;
 
@@ -54,7 +51,7 @@ fn save_midi(notes: &[Note], path: &str) {
         let freq = note.frequency as f64;
         let midi_note = (69.0 + 12.0 * (freq / 440.0).log2()).round() as u8;
         let start_tick = (note.start * ticks_per_sec) as i32;
-        let delta = (start_tick as i32 - last_tick as i32) as u32;
+        let delta = (start_tick - last_tick as i32) as u32;
         write_var_len(&mut track, delta);
         last_tick = start_tick as f64;
         track.push(0x90); // note_on, channel 0
@@ -95,7 +92,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let err_fn = |err| eprintln!("stream error: {}", err);
 
-    let stream = match config.sample_format() {
+    let _stream = match config.sample_format() {
         cpal::SampleFormat::F32 => device
             .build_input_stream(
                 config.config(),

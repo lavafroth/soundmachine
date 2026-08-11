@@ -62,7 +62,7 @@ pub(crate) fn cqt(samples: &[f64], sample_rate_hz: f64) -> Result<f64, Box<dyn s
         &cqt_params,
         Some(&db_floor),
     )?;
-    let spectrogram = plan.compute(&samples)?;
+    let spectrogram = plan.compute(samples)?;
     let db_matrix = spectrogram.data();
 
     let f = loudest_frequency(db_matrix, cqt_params.frequencies().as_non_empty_slice());
