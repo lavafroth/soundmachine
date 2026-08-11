@@ -1,4 +1,3 @@
-use hound::WavReader;
 use ndarray::Array2;
 use spectrograms::CqtParams;
 use spectrograms::Decibels;
@@ -12,31 +11,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::num::NonZeroUsize;
 
-pub(crate) fn load_input() -> Result<(Vec<f64>, f64), Box<dyn Error>> {
-    let reader = WavReader::open("tests/fixtures/input.wav")?;
-    let spec = reader.spec();
-    let sample_rate = spec.sample_rate as f64;
-    let num_channels = spec.channels as usize;
-
-    let pcm_le_16bit_max = i16::MAX as f64;
-    let raw_samples: Vec<f64> = reader
-        .into_samples::<i16>()
-        .map(|sample| sample.map(|s| s as f64 / pcm_le_16bit_max))
-        .collect::<Result<_, _>>()?;
-
-    let mono_samples = if num_channels > 1 {
-        raw_samples
-            .chunks_exact(num_channels)
-            .map(|chunk| chunk.iter().sum::<f64>() / num_channels as f64)
-            .collect::<Vec<f64>>()
-    } else {
-        raw_samples
-    };
-
-    Ok((mono_samples, sample_rate))
-}
-
-pub(crate) fn cqt(samples: &[f64], sample_rate_hz: f64) -> Result<f64, Box<dyn std::error::Error>> {
+pub(crate) fn cqt(samples: &[f32], sample_rate_hz: f64) -> Result<f64, Box<dyn Error>> {
     let samples = non_empty_slice::NonEmptySlice::try_new(samples)?;
 
     // let n_fft = nzu!(2048);
@@ -57,7 +32,7 @@ pub(crate) fn cqt(samples: &[f64], sample_rate_hz: f64) -> Result<f64, Box<dyn s
     let params = SpectrogramParams::new(stft, sample_rate_hz)?;
 
     let db_floor = LogParams::new(-80.0)?;
-    let mut plan = SpectrogramPlanner::new().cqt_plan::<Decibels, f64>(
+    let mut plan = SpectrogramPlanner::new().cqt_plan::<Decibels, f32>(
         &params,
         &cqt_params,
         Some(&db_floor),
@@ -70,7 +45,7 @@ pub(crate) fn cqt(samples: &[f64], sample_rate_hz: f64) -> Result<f64, Box<dyn s
     Ok(f)
 }
 
-pub fn loudest_frequency(chunk: &Array2<f64>, bins: &non_empty_slice::NonEmptySlice<f64>) -> f64 {
+pub fn loudest_frequency(chunk: &Array2<f32>, bins: &non_empty_slice::NonEmptySlice<f64>) -> f64 {
     let n_columns = chunk.ncols();
 
     let mut peak_frequencies = Vec::with_capacity(n_columns);
@@ -125,6 +100,30 @@ fn calculate_safe_n_fft(fmin: f64, sample_rate: f64, bins_per_octave: u32) -> u3
 mod test {
     use crate::filter::*;
 
+    use hound::WavReader;
+    fn load_input() -> Result<(Vec<f32>, f64), Box<dyn Error>> {
+        let reader = WavReader::open("tests/fixtures/input.wav")?;
+        let spec = reader.spec();
+        let sample_rate = spec.sample_rate as f64;
+        let num_channels = spec.channels as usize;
+
+        let pcm_le_16bit_max = i16::MAX as f64;
+        let raw_samples: Vec<f32> = reader
+            .into_samples::<i16>()
+            .map(|sample| sample.map(|s| s as f32 / pcm_le_16bit_max as f32))
+            .collect::<Result<_, _>>()?;
+
+        let mono_samples = if num_channels > 1 {
+            raw_samples
+                .chunks_exact(num_channels)
+                .map(|chunk| chunk.iter().sum::<f32>() / num_channels as f32)
+                .collect::<Vec<f32>>()
+        } else {
+            raw_samples
+        };
+
+        Ok((mono_samples, sample_rate))
+    }
     #[test]
     fn mode_frequency_single_file() -> Result<(), Box<dyn std::error::Error>> {
         let (samples, sr) = load_input()?;
