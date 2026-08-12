@@ -2,10 +2,8 @@ use cpal::traits::StreamTrait;
 use cpal::traits::{DeviceTrait, HostTrait};
 use getch_rs::{Getch, Key};
 use std::error::Error;
-use std::process::{ExitCode, exit};
-use std::sync::mpsc::channel;
+use std::process::exit;
 use std::sync::{Arc, Mutex};
-use std::thread;
 
 mod filter;
 mod midi;
@@ -21,8 +19,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let samples = Arc::new(Mutex::new(Vec::<f32>::new()));
     let samples_clone = samples.clone();
-
-    let (tx, rx) = channel::<()>();
 
     let err_fn = |err| eprintln!("stream error: {}", err);
     let stream = match config.sample_format() {
@@ -41,22 +37,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    thread::spawn(move || {
-        stream.play().expect("failed to start stream");
-        if rx.recv().is_ok() {
-            stream.pause().unwrap();
-        }
-    });
-
     let g = Getch::new();
 
     println!("Press q to finish recording, any other key to mark a note boundary.");
 
+    stream.play()?;
     let mut chunk_segments = vec![]; // 0 to first chunk is discarded
     while let Ok(key) = g.getch() {
         match key {
             Key::Char('q') => {
-                tx.send(())?;
+                stream.pause()?;
                 chunk_segments.push(samples.lock().unwrap().len());
                 break;
             }
