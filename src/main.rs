@@ -2,6 +2,7 @@ use cpal::traits::StreamTrait;
 use cpal::traits::{DeviceTrait, HostTrait};
 use getch_rs::{Getch, Key};
 use std::error::Error;
+use std::process::{ExitCode, exit};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -15,9 +16,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let device = host
         .default_input_device()
         .expect("no input device available");
-    let config = device
-        .default_input_config()
-        .expect("failed to get default input config");
+    let config = device.default_input_config()?;
     let sample_rate = config.sample_rate();
 
     let samples = Arc::new(Mutex::new(Vec::<f32>::new()));
@@ -25,22 +24,24 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let (tx, rx) = channel::<()>();
 
-    thread::spawn(move || {
-        let err_fn = |err| eprintln!("stream error: {}", err);
-        let stream = match config.sample_format() {
-            cpal::SampleFormat::F32 => device
-                .build_input_stream(
-                    config.config(),
-                    move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                        samples_clone.lock().unwrap().extend_from_slice(data);
-                    },
-                    err_fn,
-                    None,
-                )
-                .expect("failed to build input stream"),
-            _ => panic!("Unsupported sample format"),
-        };
+    let err_fn = |err| eprintln!("stream error: {}", err);
+    let stream = match config.sample_format() {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            config.config(),
+            move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                samples_clone.lock().unwrap().extend_from_slice(data);
+            },
+            err_fn,
+            None,
+        )?,
 
+        _ => {
+            eprintln!("Unsupported sample format for input audio stream, exiting.");
+            exit(1);
+        }
+    };
+
+    thread::spawn(move || {
         stream.play().expect("failed to start stream");
         if rx.recv().is_ok() {
             stream.pause().unwrap();
