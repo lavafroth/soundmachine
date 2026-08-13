@@ -2,6 +2,7 @@ use cpal::traits::StreamTrait;
 use cpal::traits::{DeviceTrait, HostTrait};
 use getch_rs::{Getch, Key};
 use std::error::Error;
+use std::f32::consts::PI;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 
@@ -68,15 +69,83 @@ fn main() -> Result<(), Box<dyn Error>> {
         freqs.push(freq);
     }
 
-    let mut last = 0.0;
-    for freq in freqs {
+    let device = host
+        .default_output_device()
+        .expect("no input device available");
+
+    let config = device.default_output_config()?.config();
+    let sample_rate = config.sample_rate as f32;
+    let channels = config.channels as usize;
+
+    let freq_lock = Arc::new(Mutex::new(0f64));
+    let freq_lock_clone = freq_lock.clone();
+
+    // Produce a sinusoid of maximum amplitude.
+    let mut sample_clock = 0f32;
+
+    let err_fn = |err: cpal::Error| match err.kind() {
+        cpal::ErrorKind::DeviceChanged
+        | cpal::ErrorKind::Xrun
+        | cpal::ErrorKind::RealtimeDenied => {
+            eprintln!("{err}")
+        }
+        _ => eprintln!("Stream error: {err}"),
+    };
+
+    let stream = device.build_output_stream(
+        config,
+        move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+            for frame in data.chunks_mut(channels) {
+                let freq = *freq_lock_clone.lock().unwrap();
+
+                sample_clock = (sample_clock + 1.0) % sample_rate;
+                let value = (sample_clock * freq as f32 * 2.0 * PI / sample_rate).sin() * 0.25;
+                for sample in frame.iter_mut() {
+                    *sample = value;
+                }
+            }
+        },
+        err_fn,
+        None,
+    )?;
+    stream.play()?;
+
+    println!(
+        "Replaying the notes back to you. Press any key to mark the rhythm or control c to exit"
+    );
+
+    let now = std::time::Instant::now();
+
+    let mut freq_index = 0;
+    let mut durations = vec![];
+    while let Ok(key) = g.getch() {
+        match key {
+            Key::Ctrl('c') => {
+                break;
+            }
+            _ => {
+                if let Some(&freq) = freqs.get(freq_index) {
+                    let mut handle = freq_lock
+                        .lock()
+                        .expect("failed to lock on output frequency mutex");
+                    *handle = freq * 4.0;
+                    freq_index += 1;
+                    durations.push(now.elapsed().as_secs_f32());
+                } else {
+                    durations.push(now.elapsed().as_secs_f32());
+                    break;
+                }
+            }
+        }
+    }
+
+    let mut freq_start_end = freqs.iter().zip(durations.windows(2));
+    while let Some((&freq, &[start, end])) = freq_start_end.next() {
         notes.push(Note {
             frequency: freq as f32 * 4.0,
-            start: last,
-            end: last + 1.0,
+            start: start as f64,
+            end: end as f64,
         });
-
-        last += 1.0;
     }
 
     save_midi(&notes, "output.mid")?;
