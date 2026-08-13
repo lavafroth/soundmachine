@@ -16,7 +16,7 @@ cargo run --release
 For the first pass, hum each note *slowly* and press the space bar at the start of each note.
 Press _Q_ to confirm.
 
-### Rhythm `TODO`
+### Rhythm
 
 After pressing _Q_, the frequencies will be played back to you.
 

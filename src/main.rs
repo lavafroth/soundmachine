@@ -4,6 +4,7 @@ use getch_rs::{Getch, Key};
 use std::error::Error;
 use std::f32::consts::PI;
 use std::process::exit;
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 mod filter;
@@ -77,11 +78,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let sample_rate = config.sample_rate as f32;
     let channels = config.channels as usize;
 
-    let freq_lock = Arc::new(Mutex::new(0f64));
+    let freq_lock = Arc::new(AtomicU32::new(0));
     let freq_lock_clone = freq_lock.clone();
-
-    // Produce a sinusoid of maximum amplitude.
-    let mut sample_clock = 0f32;
 
     let err_fn = |err: cpal::Error| match err.kind() {
         cpal::ErrorKind::DeviceChanged
@@ -92,14 +90,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         _ => eprintln!("Stream error: {err}"),
     };
 
+    let mut phase = 0.0_f32;
     let stream = device.build_output_stream(
         config,
         move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
             for frame in data.chunks_mut(channels) {
-                let freq = *freq_lock_clone.lock().unwrap();
+                let freq = freq_lock_clone.load(std::sync::atomic::Ordering::Relaxed);
+                let freq = f32::from_bits(freq);
 
-                sample_clock = (sample_clock + 1.0) % sample_rate;
-                let value = (sample_clock * freq as f32 * 2.0 * PI / sample_rate).sin() * 0.25;
+                let value = (2.0 * PI * phase).sin() * 0.25;
+
+                phase += freq / sample_rate;
+
+                if phase >= 1.0 {
+                    phase -= 1.0;
+                }
+
                 for sample in frame.iter_mut() {
                     *sample = value;
                 }
@@ -125,10 +131,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             _ => {
                 if let Some(&freq) = freqs.get(freq_index) {
-                    let mut handle = freq_lock
-                        .lock()
-                        .expect("failed to lock on output frequency mutex");
-                    *handle = freq * 4.0;
+                    freq_lock.store(
+                        (freq as f32 * 4.0).to_bits(),
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
                     freq_index += 1;
                     durations.push(now.elapsed().as_secs_f32());
                 } else {
