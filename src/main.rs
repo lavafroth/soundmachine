@@ -47,6 +47,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut chunk_segments = vec![]; // 0 to first chunk is discarded
     while let Ok(key) = g.getch() {
         match key {
+            Key::Ctrl('c') => {
+                exit(0);
+            }
             Key::Char('q') => {
                 stream.pause()?;
                 chunk_segments.push(samples.lock().unwrap().len());

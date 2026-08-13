@@ -1,4 +1,5 @@
 use ndarray::Array2;
+use ndarray::concatenate;
 use spectrograms::CqtParams;
 use spectrograms::Decibels;
 use spectrograms::LogParams;
@@ -14,38 +15,46 @@ use std::num::NonZeroUsize;
 pub(crate) fn cqt(samples: &[f32], sample_rate_hz: f64) -> Result<f64, Box<dyn Error>> {
     let samples = non_empty_slice::NonEmptySlice::try_new(samples)?;
 
-    // let n_fft = nzu!(2048);
+    let mut specs = vec![];
+    let mut quantized_frequencies = vec![];
     let hop_size = nzu!(512);
 
     let bins_per_octave = nzu!(12);
-    let n_octaves = nzu!(4);
-    let f_min = 65.41;
-
-    let n_fft = NonZeroUsize::try_from(calculate_safe_n_fft(
-        f_min,
-        sample_rate_hz,
-        bins_per_octave.get() as u32,
-    ) as usize)?;
-
-    let stft = StftParams::new(n_fft, hop_size, WindowType::Hanning, true)?;
-    let cqt_params = CqtParams::new(bins_per_octave, n_octaves, f_min)?;
-    let params = SpectrogramParams::new(stft, sample_rate_hz)?;
+    let n_octaves = nzu!(1);
 
     let db_floor = LogParams::new(-80.0)?;
-    let mut plan = SpectrogramPlanner::new().cqt_plan::<Decibels, f32>(
-        &params,
-        &cqt_params,
-        Some(&db_floor),
-    )?;
-    let spectrogram = plan.compute(samples)?;
-    let db_matrix = spectrogram.data();
 
-    let f = loudest_frequency(db_matrix, cqt_params.frequencies().as_non_empty_slice());
+    // C2, C3, C4
+    for f_min in [65.406, 130.813, 261.626] {
+        let n_fft = NonZeroUsize::try_from(calculate_safe_n_fft(
+            f_min,
+            sample_rate_hz,
+            bins_per_octave.get() as u32,
+        ) as usize)?;
+
+        let stft = StftParams::new(n_fft, hop_size, WindowType::Hanning, true)?;
+        let cqt_params = CqtParams::new(bins_per_octave, n_octaves, f_min)?;
+        let params = SpectrogramParams::new(stft, sample_rate_hz)?;
+
+        let mut plan = SpectrogramPlanner::new().cqt_plan::<Decibels, f32>(
+            &params,
+            &cqt_params,
+            Some(&db_floor),
+        )?;
+        let spectrogram = plan.compute(samples)?;
+        specs.push(spectrogram.into_data());
+        quantized_frequencies.extend_from_slice(cqt_params.frequencies().as_slice());
+    }
+
+    let views: Vec<_> = specs.iter().map(|v| v.view()).collect();
+    let multi_octave_spectrum = concatenate(ndarray::Axis(0), &views)?;
+
+    let f = loudest_frequency(&multi_octave_spectrum, &quantized_frequencies);
 
     Ok(f)
 }
 
-pub fn loudest_frequency(chunk: &Array2<f32>, bins: &non_empty_slice::NonEmptySlice<f64>) -> f64 {
+pub fn loudest_frequency(chunk: &Array2<f32>, bins: &[f64]) -> f64 {
     let n_columns = chunk.ncols();
 
     let mut peak_frequencies = Vec::with_capacity(n_columns);
